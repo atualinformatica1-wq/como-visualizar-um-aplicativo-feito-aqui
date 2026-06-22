@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MecânicaPro - Sistema de Gestão</title>
+    <!-- Tailwind CSS para Design -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            aside, header, button, .floating-btn { display: none !important; }
+            main { padding: 0 !important; margin: 0 !important; width: 100% !important; }
+            .card { border: 1px solid #000 !important; box-shadow: none !important; }
+        }
+        .print-only { display: none; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+        .animate-bounce-soft { animation: bounce 3s infinite; }
+        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+    </style>
+    <!-- Scripts Necessários -->
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@18.3.1",
+        "react-dom": "https://esm.sh/react-dom@18.3.1",
+        "react-dom/client": "https://esm.sh/react-dom@18.3.1/client",
+        "lucide-react": "https://esm.sh/lucide-react@0.400.0?external=react,react-dom",
+        "date-fns": "https://esm.sh/date-fns@2.30.0",
+        "date-fns/locale": "https://esm.sh/date-fns@2.30.0/locale"
+      }
+    }
+    </script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body class="bg-[#F8FAFC] text-[#0F172A]">
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module" data-presets="react">
+    import React, { useState, useEffect, useMemo } from 'react';
+    import { createRoot } from 'react-dom/client';
+    import { 
+      LayoutDashboard, Wrench, Package, ShoppingCart, Users, DollarSign, 
+      Plus, Search, Printer, Trash2, History, ChevronRight, Menu, X, 
+      FileText, UserCheck, AlertTriangle, CheckCircle2, BarChart3, Edit, Settings as SettingsIcon, LogOut
+    } from 'lucide-react';
+    import { format } from 'date-fns';
+    import { ptBR } from 'date-fns/locale';
+
+    // --- Hooks ---
+    function usePersistentData(key, initialValue) {
+      const [data, setData] = useState(() => {
+        try {
+          const saved = window.localStorage.getItem(key);
+          return saved ? JSON.parse(saved) : initialValue;
+        } catch (e) { return initialValue; }
+      });
+
+      const setPersistentData = (newValue) => {
+        const valueToStore = newValue instanceof Function ? newValue(data) : newValue;
+        setData(valueToStore);
+        window.localStorage.setItem(key, JSON.stringify(valueToStore));
+      };
+
+      return [data, setPersistentData];
+    }
+
+    const safeFormat = (dateStr, formatStr) => {
+      try {
+        if (!dateStr) return '---';
+        const d = new Date(dateStr);
+        return isNaN(d.getTime()) ? '---' : format(d, formatStr, { locale: ptBR });
+      } catch (e) { return '---'; }
+    };
+
+    // --- Components ---
+    const Badge = ({ children, variant = 'neutral' }) => {
+      const v = {
+        neutral: 'bg-slate-100 text-slate-700',
+        success: 'bg-emerald-100 text-emerald-700',
+        warning: 'bg-amber-100 text-amber-700',
+        danger: 'bg-rose-100 text-rose-700',
+        blue: 'bg-blue-100 text-blue-700',
+      };
+      return <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-tighter ${v[variant] || v.neutral}`}>{children}</span>;
+    };
+
+    const NavItem = ({ active, icon, label, onClick }) => (
+      <button onClick={onClick} className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-bold transition-all ${active ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20 scale-[1.02]' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}>
+        {icon} <span className="text-sm">{label}</span>
+      </button>
+    );
+
+    // --- MAIN APP ---
+    function App() {
+      const [activeTab, setActiveTab] = useState('home');
+      const [isSidebarOpen, setSidebarOpen] = useState(true);
+      const [currentUser, setCurrentUser] = usePersistentData('mpro_user', null);
+      const [printData, setPrintData] = useState(null);
+
+      // Data States
+      const [orders, setOrders] = usePersistentData('mpro_orders', []);
+      const [products, setProducts] = usePersistentData('mpro_products', [
+        { id: 1, name: 'Óleo 5W30', category: 'Lubrificantes', price: 65, stock: 10, minStock: 5, images: [] }
+      ]);
+      const [customers, setCustomers] = usePersistentData('mpro_customers', []);
+      const [mechanics, setMechanics] = usePersistentData('mpro_mechanics', []);
+      const [transactions, setTransactions] = usePersistentData('mpro_transactions', []);
+      const [laborServices, setLaborServices] = usePersistentData('mpro_labor', []);
+      const [settings, setSettings] = usePersistentData('mpro_settings', {
+        name: 'MINHA OFICINA', cnpj: '', phone: '', address: '', neighborhood: '', city: '', state: '', printType: 'a4'
+      });
+
+      // Actions
+      const addTx = (type, amount, desc, cat = 'Outros') => {
+        const tx = { id: Date.now(), date: new Date().toISOString(), type, amount: parseFloat(amount), description: desc, category: cat };
+        setTransactions([tx, ...transactions]);
+      };
+
+      const handlePrint = (type, data) => {
+        setPrintData({ type, data });
+        setTimeout(() => { window.print(); setPrintData(null); }, 300);
+      };
+
+      // --- Views ---
+
+      const Login = () => {
+        const [pw, setPw] = useState('');
+        return (
+          <div className="fixed inset-0 bg-slate-900 z-[1000] flex items-center justify-center p-4">
+            <div className="bg-white p-10 rounded-[2.5rem] w-full max-w-sm shadow-2xl text-center space-y-8">
+              <div className="w-20 h-20 bg-blue-600 rounded-3xl flex items-center justify-center text-white mx-auto shadow-xl shadow-blue-200 animate-pulse"><Wrench size={40}/></div>
+              <h2 className="text-3xl font-black tracking-tighter">MECÂNICA<span className="text-blue-600">PRO</span></h2>
+              <input type="password" placeholder="Senha de Acesso" className="w-full h-14 bg-slate-50 rounded-2xl border-2 border-slate-100 text-center text-2xl tracking-[0.5em] focus:border-blue-500 outline-none" value={pw} onChange={e=>setPw(e.target.value)} onKeyDown={e=>e.key==='Enter' && pw === '1234' && setCurrentUser({name: 'Admin'})}/>
+              <button onClick={()=>{ if(pw==='1234') setCurrentUser({name:'Admin'}); else alert('Erro!'); }} className="w-full h-14 bg-blue-600 text-white rounded-2xl font-black uppercase tracking-widest shadow-lg">Entrar</button>
+              <p className="text-[10px] text-slate-300 font-bold uppercase tracking-widest">Senha Padrão: 1234</p>
+            </div>
+          </div>
+        );
+      };
+
+      const Welcome = () => (
+        <div className="h-full flex flex-col items-center justify-center text-center space-y-12">
+            <div className="w-24 h-24 bg-blue-600 rounded-[2rem] flex items-center justify-center text-white shadow-2xl animate-bounce-soft mx-auto"><Wrench size={48}/></div>
+            <h1 className="text-6xl font-black tracking-tighter">MECÂNICA<span className="text-blue-600">PRO</span></h1>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full max-w-4xl">
+              <QuickCard onClick={()=>setActiveTab('orders')} icon={<Wrench/>} label="O.S." color="bg-blue-600" />
+              <QuickCard onClick={()=>setActiveTab('pos')} icon={<ShoppingCart/>} label="PDV" color="bg-emerald-600" />
+              <QuickCard onClick={()=>setActiveTab('customers')} icon={<Users/>} label="Clientes" color="bg-indigo-600" />
+              <QuickCard onClick={()=>setActiveTab('inventory')} icon={<Package/>} label="Estoque" color="bg-amber-600" />
+            </div>
+            <button onClick={()=>setActiveTab('management')} className="bg-slate-900 text-white px-10 h-14 rounded-full font-black uppercase tracking-widest flex items-center gap-4 hover:scale-105 transition-all">Painel de Gestão <ChevronRight/></button>
+        </div>
+      );
+
+      const QuickCard = ({icon, label, onClick, color}) => (
+        <button onClick={onClick} className="bg-white p-6 rounded-[2rem] border-2 border-slate-100 shadow-xl hover:border-blue-500 hover:-translate-y-2 transition-all flex flex-col items-center gap-3">
+          <div className={`w-14 h-14 ${color} rounded-2xl flex items-center justify-center text-white shadow-inner`}>{icon}</div>
+          <span className="font-black text-slate-800 uppercase tracking-tighter text-sm">{label}</span>
+        </button>
+      );
+
+      const Management = () => {
+        const income = transactions.filter(t=>t.type==='income').reduce((a,b)=>a+b.amount,0);
+        const expense = transactions.filter(t=>t.type==='expense').reduce((a,b)=>a+b.amount,0);
+        return (
+          <div className="space-y-8">
+            <h2 className="text-3xl font-black tracking-tighter">Gestão Simplificada</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <StatCard label="O.S. Abertas" value={orders.filter(o=>o.status!=='Finalizada').length} color="blue" />
+              <StatCard label="Saldo Total" value={`R$ ${(income-expense).toFixed(2)}`} color="emerald" />
+              <StatCard label="Itens Críticos" value={products.filter(p=>p.stock<=p.minStock).length} color="rose" />
+            </div>
+            <div className="bg-slate-900 p-10 rounded-[2.5rem] text-white flex justify-between items-center shadow-2xl relative overflow-hidden">
+               <div className="relative z-10 space-y-2">
+                 <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Lucro Líquido</p>
+                 <h4 className="text-5xl font-black text-emerald-400">R$ {(income - expense).toFixed(2)}</h4>
+               </div>
+               <DollarSign className="w-32 h-32 opacity-10 -rotate-12" />
+            </div>
+          </div>
+        );
+      };
+
+      const StatCard = ({label, value, color}) => (
+        <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-sm flex flex-col gap-1">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{label}</p>
+          <p className={`text-3xl font-black ${color==='rose'?'text-rose-600':color==='emerald'?'text-emerald-600':'text-slate-900'}`}>{value}</p>
+        </div>
+      );
+
+      const OSView = () => {
+        const [isNew, setIsNew] = useState(false);
+        const [search, setSearch] = useState('');
+        const [form, setForm] = useState({customer:'', vehicle:'', labor:0, desc:'', parts:[]});
+
+        return (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+                <h2 className="text-2xl font-black">Ordens de Serviço</h2>
+                <button onClick={()=>setIsNew(true)} className="bg-blue-600 text-white px-5 py-2.5 rounded-2xl font-bold flex items-center gap-2 shadow-lg shadow-blue-200"><Plus size={18}/> Nova O.S.</button>
+            </div>
+            {isNew && (
+                <div className="bg-white p-8 rounded-[2rem] border-2 border-blue-100 shadow-2xl space-y-6">
+                    <div className="grid grid-cols-2 gap-4">
+                        <select className="h-12 px-4 rounded-xl border-2 bg-slate-50 focus:border-blue-500 outline-none font-bold" onChange={e=>{const c=customers.find(x=>x.id==e.target.value); setForm({...form, customer:c.name, vehicle:c.vehicle, customerId:c.id})}}>
+                            <option>Selecionar Cliente</option>
+                            {customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                        <input className="h-12 px-4 rounded-xl border-2 bg-slate-100 font-bold" value={form.vehicle} readOnly placeholder="Veículo" />
+                    </div>
+                    <textarea className="w-full p-4 rounded-xl border-2 bg-slate-50 outline-none h-24" placeholder="Descrição do Problema..." onChange={e=>setForm({...form, desc:e.target.value})}/>
+                    <button onClick={()=>{
+                        const os = {id: Date.now(), ...form, status:'Pendente', createdAt:new Date().toISOString(), total: parseFloat(form.labor)};
+                        setOrders([os, ...orders]);
+                        setIsNew(false);
+                    }} className="w-full h-14 bg-blue-600 text-white rounded-2xl font-black uppercase shadow-lg">Gerar Ordem de Serviço</button>
+                </div>
+            )}
+            <div className="bg-white rounded-[2rem] border overflow-hidden shadow-sm">
+                <table className="w-full text-left">
+                    <thead className="bg-slate-50 text-[10px] font-black uppercase border-b text-slate-400 tracking-widest"><tr className="h-12"><th className="px-8">Código</th><th className="px-6">Cliente / Veículo</th><th className="px-6">Status</th><th className="px-8 text-right">Ações</th></tr></thead>
+                    <tbody className="divide-y text-sm">
+                        {orders.map(o=>(
+                            <tr key={o.id} className="h-20 hover:bg-slate-50 transition-colors">
+                                <td className="px-8 font-mono text-xs">#{o.id}</td>
+                                <td className="px-6"><p className="font-black text-slate-900">{o.customer}</p><p className="text-xs text-blue-600 font-bold">{o.vehicle}</p></td>
+                                <td className="px-6"><Badge variant={o.status==='Finalizada'?'success':'warning'}>{o.status}</Badge></td>
+                                <td className="px-8 text-right flex justify-end gap-2 items-center h-20">
+                                    <button onClick={()=>handlePrint('os', o)} className="p-2 border rounded-xl hover:bg-white transition-all"><Printer size={16}/></button>
+                                    <button onClick={()=>{
+                                        const upd = orders.map(x=>x.id===o.id?{...x, status:'Finalizada'}:x);
+                                        setOrders(upd);
+                                        addTx('income', o.total, `O.S. #${o.id} - ${o.customer}`, 'Serviço');
+                                        alert('Finalizada!');
+                                    }} className="bg-emerald-600 text-white px-3 py-1.5 rounded-lg text-xs font-black uppercase">Finalizar</button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+          </div>
+        );
+      };
+
+      const PrintLayout = () => {
+        if(!printData) return null;
+        const {type, data} = printData;
+        return (
+            <div className="fixed inset-0 bg-white z-[9999] p-10 text-black border-4 border-black">
+                <div className="text-center border-b-4 border-black pb-6 mb-8">
+                    <h1 className="text-4xl font-black uppercase">{settings.name}</h1>
+                    <p className="font-bold text-lg">{settings.address}, {settings.neighborhood} - {settings.city}/{settings.state}</p>
+                    <p className="font-black">CNPJ: {settings.cnpj} | FONE: {settings.phone}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-10 text-xl mb-10">
+                    <div><p className="text-xs font-bold uppercase text-slate-400">Cliente</p><p className="font-black">{data.customer || data.customerName}</p></div>
+                    <div className="text-right"><p className="text-xs font-bold uppercase text-slate-400">Data</p><p className="font-black">{safeFormat(data.createdAt || data.date, 'dd/MM/yyyy HH:mm')}</p></div>
+                </div>
+                <div className="border-y-2 border-black py-6 mb-10 min-h-[300px]">
+                    <h3 className="font-black uppercase mb-4 tracking-tighter text-2xl">Resumo do Pedido</h3>
+                    <p className="text-lg leading-relaxed">{data.desc || 'Venda Direta'}</p>
+                </div>
+                <div className="flex justify-between items-end">
+                    <div className="border-t-2 border-black w-64 pt-2 text-center text-xs font-bold uppercase">Assinatura</div>
+                    <div className="text-right">
+                        <p className="text-sm font-bold uppercase">Total a Pagar</p>
+                        <p className="text-6xl font-black">R$ {(parseFloat(data.total) || 0).toFixed(2)}</p>
+                    </div>
+                </div>
+            </div>
+        );
+      };
+
+      // --- RENDER ---
+      if(!currentUser) return <Login />;
+
+      return (
+        <div className="flex h-screen overflow-hidden bg-slate-50">
+          <PrintLayout />
+          
+          <aside className="w-72 bg-slate-900 text-slate-300 flex flex-col p-6 space-y-8 no-print shrink-0">
+            <div className="py-4 border-b border-white/10"><h2 className="text-2xl font-black text-white tracking-tighter">MECÂNICA<span className="text-blue-500">PRO</span></h2></div>
+            <nav className="flex-1 space-y-2 overflow-y-auto pr-2">
+              <NavItem active={activeTab==='home'} label="Página Inicial" icon={<Menu/>} onClick={()=>setActiveTab('home')} />
+              <NavItem active={activeTab==='management'} label="Gestão Simplificada" icon={<LayoutDashboard/>} onClick={()=>setActiveTab('management')} />
+              <NavItem active={activeTab==='orders'} label="Ordens de Serviço" icon={<Wrench/>} onClick={()=>setActiveTab('orders')} />
+              <NavItem active={activeTab==='pos'} label="PDV / Vendas" icon={<ShoppingCart/>} onClick={()=>setActiveTab('pos')} />
+              <NavItem active={activeTab==='inventory'} label="Estoque" icon={<Package/>} onClick={()=>setActiveTab('inventory')} />
+              <NavItem active={activeTab==='customers'} label="Clientes" icon={<Users/>} onClick={()=>setActiveTab('customers')} />
+              <NavItem active={activeTab==='finance'} label="Financeiro" icon={<DollarSign/>} onClick={()=>setActiveTab('finance')} />
+              <NavItem active={activeTab==='settings'} label="Ajustes" icon={<SettingsIcon/>} onClick={()=>setActiveTab('settings')} />
+            </nav>
+            <div className="pt-6 border-t border-white/10 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black">{settings.name[0]}</div>
+                    <div className="overflow-hidden"><p className="text-xs font-black text-white truncate">{settings.name}</p><p className="text-[8px] font-bold text-slate-500 uppercase">Acesso Mestre</p></div>
+                </div>
+                <button onClick={()=>{setCurrentUser(null); window.localStorage.removeItem('mpro_user');}} className="p-2 text-slate-500 hover:text-rose-500"><LogOut size={20}/></button>
+            </div>
+          </aside>
+
+          <main className="flex-1 flex flex-col no-print bg-[#F8FAFC]">
+            <header className="h-16 bg-white/50 backdrop-blur-xl border-b border-slate-200 flex items-center justify-between px-10 shrink-0">
+                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-emerald-500">
+                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div> Local Ativo
+                </div>
+                <div className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{safeFormat(new Date().toISOString(), 'EEEE, dd MMMM')}</div>
+            </header>
+            <div className="flex-1 overflow-y-auto p-10">
+                <div className="max-w-6xl mx-auto h-full">
+                    {activeTab === 'home' && <Welcome />}
+                    {activeTab === 'management' && <Management />}
+                    {activeTab === 'orders' && <OSView />}
+                    {activeTab === 'customers' && <div className="space-y-6">
+                        <div className="flex justify-between items-center"><h2 className="text-2xl font-black">Clientes</h2><button onClick={()=>{const n=prompt('Nome?'); const v=prompt('Veículo?'); if(n && v) setCustomers([...customers, {id:Date.now(), name:n, vehicle:v, phone:'---'}])}} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold">+ Inserir Cliente</button></div>
+                        <div className="grid grid-cols-3 gap-4">{customers.map(c=><div key={c.id} className="bg-white p-5 rounded-2xl border-2 border-slate-50 shadow-sm"><h3 className="font-black">{c.name}</h3><p className="text-xs text-blue-600 font-bold">{c.vehicle}</p></div>)}</div>
+                    </div>}
+                    {activeTab === 'pos' && <div className="h-full flex flex-col items-center justify-center text-slate-300">
+                        <ShoppingCart size={80} className="mb-4 opacity-20"/>
+                        <p className="font-black uppercase tracking-widest">PDV Pronto para Vendas</p>
+                        <button onClick={()=>{addTx('income', 100, 'Venda Rápida', 'Venda'); alert('Venda de R$ 100,00 feita!');}} className="mt-6 bg-emerald-600 text-white px-8 py-3 rounded-2xl font-black">Simular Venda R$ 100</button>
+                    </div>}
+                    {activeTab === 'finance' && <div className="space-y-6">
+                        <h2 className="text-2xl font-black">Financeiro</h2>
+                        <div className="bg-white rounded-[2rem] border overflow-hidden shadow-sm divide-y">
+                            {transactions.map(t=>(<div key={t.id} className="p-6 flex justify-between items-center"><div className="flex gap-4">
+                                <div className={`p-3 rounded-2xl ${t.type==='income'?'bg-emerald-50 text-emerald-600':'bg-rose-50 text-rose-600'}`}>{t.type==='income'?<Plus/>:<Trash2/>}</div>
+                                <div><p className="font-black text-slate-800">{t.description}</p><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{t.category} • {safeFormat(t.date, 'dd/MM HH:mm')}</p></div>
+                            </div><span className={`text-xl font-black ${t.type==='income'?'text-emerald-600':'text-rose-600'}`}>R$ {t.amount.toFixed(2)}</span></div>))}
+                        </div>
+                    </div>}
+                    {activeTab === 'settings' && (
+                        <div className="max-w-2xl space-y-6">
+                            <h2 className="text-2xl font-black">Configurações da Oficina</h2>
+                            <div className="bg-white p-10 rounded-[2.5rem] border-2 border-slate-50 shadow-xl space-y-6">
+                                <div className="space-y-4">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Nome Oficina</label><input className="w-full h-12 bg-slate-50 rounded-2xl px-4 border-2 border-transparent focus:border-blue-500 outline-none font-bold" value={settings.name} onChange={e=>setSettings({...settings, name:e.target.value})}/></div>
+                                        <div className="space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1">CNPJ</label><input className="w-full h-12 bg-slate-50 rounded-2xl px-4 border-2 border-transparent focus:border-blue-500 outline-none font-bold" value={settings.cnpj} onChange={e=>setSettings({...settings, cnpj:e.target.value})}/></div>
+                                    </div>
+                                    <div className="space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Endereço</label><input className="w-full h-12 bg-slate-50 rounded-2xl px-4 border-2 border-transparent focus:border-blue-500 outline-none font-bold" value={settings.address} onChange={e=>setSettings({...settings, address:e.target.value})}/></div>
+                                    <div className="grid grid-cols-3 gap-4">
+                                        <div className="space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Bairro</label><input className="w-full h-12 bg-slate-50 rounded-2xl px-4 border-2 border-transparent focus:border-blue-500 outline-none font-bold" value={settings.neighborhood} onChange={e=>setSettings({...settings, neighborhood:e.target.value})}/></div>
+                                        <div className="space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Cidade</label><input className="w-full h-12 bg-slate-50 rounded-2xl px-4 border-2 border-transparent focus:border-blue-500 outline-none font-bold" value={settings.city} onChange={e=>setSettings({...settings, city:e.target.value})}/></div>
+                                        <div className="space-y-1"><label className="text-[10px] font-black uppercase text-slate-400 ml-1">Estado</label><input className="w-full h-12 bg-slate-50 rounded-2xl px-4 border-2 border-transparent focus:border-blue-500 outline-none font-bold uppercase" maxLength="2" value={settings.state} onChange={e=>setSettings({...settings, state:e.target.value})}/></div>
+                                    </div>
+                                </div>
+                                <button onClick={()=>alert('Salvo!')} className="w-full h-14 bg-slate-900 text-white rounded-2xl font-black uppercase tracking-widest shadow-xl">Salvar Alterações</button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            </div>
+          </main>
+        </div>
+      );
+    }
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+    </script>
+</body>
+</html>
